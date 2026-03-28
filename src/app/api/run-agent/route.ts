@@ -59,6 +59,8 @@ export async function POST(req: NextRequest) {
       backupOption: ranked.backupOption,
       rejectedOptions: ranked.rejectedOptions,
       explanation,
+      dates: parsed.dates,
+      budget: parsed.budget,
     });
   } catch (error) {
     console.error("Agent failed:", error);

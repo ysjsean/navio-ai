@@ -7,6 +7,7 @@ import { ResultCard } from "@/components/result-card";
 import { BestAreaCard } from "@/components/best-area-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { AgentStep, AgentResult } from "@/types/itinerary";
+import { PriceWatchForm } from "@/components/price-watch-form";
 import { RejectedListing } from "@/types/hotel";
 
 const INITIAL_STEPS: AgentStep[] = [
@@ -85,6 +86,8 @@ export default function Home() {
         backupOption: data.backupOption,
         rejectedOptions: data.rejectedOptions,
         explanation: data.explanation,
+        dates: data.dates,
+        budget: data.budget,
       });
 
       await delay(500);
@@ -337,6 +340,9 @@ export default function Home() {
               </p>
             </CardContent>
           </Card>
+
+          {/* Price Watch */}
+          <PriceWatchForm result={result} />
 
           {/* Rejected Options */}
           {result.rejectedOptions.length > 0 && (

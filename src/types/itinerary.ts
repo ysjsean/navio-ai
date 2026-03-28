@@ -31,4 +31,6 @@ export interface AgentResult {
   backupOption: import("./hotel").Listing | null;
   rejectedOptions: import("./hotel").RejectedListing[];
   explanation: string;
+  dates?: { checkin: string; checkout: string };
+  budget?: string;
 }

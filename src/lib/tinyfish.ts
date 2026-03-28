@@ -28,17 +28,26 @@ export async function fetchTinyFish(params: TinyFishParams): Promise<Listing[]> 
   const encodedArea = encodeURIComponent(`accommodations in ${params.area}`);
   const searchUrl = `https://www.google.com/search?q=${encodedArea}`;
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": `${apiKey}`,
-    },
-    body: JSON.stringify({
-      url: searchUrl,
-      goal: goal,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000); // 60s timeout
+
+  let response: Response;
+  try {
+    response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": `${apiKey}`,
+      },
+      body: JSON.stringify({
+        url: searchUrl,
+        goal: goal,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(`TinyFish API error: ${response.status}`);
