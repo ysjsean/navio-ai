@@ -8,6 +8,7 @@ interface TinyFishParams {
     checkin: string;
     checkout: string;
   };
+  onStreamingUrl?: (url: string) => void;
 }
 
 export async function fetchTinyFish(params: TinyFishParams): Promise<Listing[]> {
@@ -76,6 +77,9 @@ export async function fetchTinyFish(params: TinyFishParams): Promise<Listing[]> 
 
         try {
           const chunk = JSON.parse(jsonStr);
+          if (chunk.type === "STREAMING_URL" && chunk.streaming_url) {
+            params.onStreamingUrl?.(chunk.streaming_url);
+          }
           if (chunk.type === "COMPLETE") {
             data = chunk.result ?? chunk;
             reader.cancel(); // stop reading — we have what we need

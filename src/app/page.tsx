@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { TripForm } from "@/components/trip-form";
 import { AgentProgress } from "@/components/agent-progress";
 import { ResultCard } from "@/components/result-card";
@@ -26,91 +26,85 @@ export default function Home() {
   const [steps, setSteps] = useState<AgentStep[]>(INITIAL_STEPS);
   const [result, setResult] = useState<AgentResult | null>(null);
   const [showRejected, setShowRejected] = useState(false);
+  const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
+  const stepsRef = useRef<AgentStep[]>(INITIAL_STEPS);
 
-  const advanceStep = (stepId: number, detail?: string) => {
-    setSteps((prev) =>
-      prev.map((s) => {
-        if (s.id < stepId) return { ...s, status: "done" };
-        if (s.id === stepId)
-          return { ...s, status: "active", detail: detail || s.detail };
-        return s;
-      })
-    );
-  };
-
-  const completeAllSteps = () => {
-    setSteps((prev) => prev.map((s) => ({ ...s, status: "done" })));
+  const setStepStatus = (id: number, status: AgentStep["status"], detail?: string) => {
+    setSteps((prev) => {
+      const next = prev.map((s) =>
+        s.id === id ? { ...s, status, ...(detail ? { detail } : {}) } : s
+      );
+      stepsRef.current = next;
+      return next;
+    });
   };
 
   const handleSubmit = async (formData: FormData) => {
     setScreen("progress");
-    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "pending" })));
+    setStreamingUrl(null);
+    const fresh = INITIAL_STEPS.map((s) => ({ ...s, status: "pending" as const }));
+    setSteps(fresh);
+    stepsRef.current = fresh;
 
     try {
-      // Step 1: Parsing
-      advanceStep(1, "Extracting travel data...");
-      await delay(800);
-
-      // Step 2: Area selection
-      advanceStep(2, "Analyzing locations...");
-      await delay(600);
-
-      // Step 3: Searching — cycle messages while waiting
-      const searchMessages = [
-        "Browsing accommodation sites...",
-        "Opening Booking.com results...",
-        "Scanning listings in your area...",
-        "Checking prices and availability...",
-        "Extracting ratings and policies...",
-        "Almost there, finalizing results...",
-      ];
-      let msgIndex = 0;
-      advanceStep(3, searchMessages[0]);
-      const searchInterval = setInterval(() => {
-        msgIndex = (msgIndex + 1) % searchMessages.length;
-        advanceStep(3, searchMessages[msgIndex]);
-      }, 8000);
-
-      let res: Response;
-      try {
-        res = await fetch("/api/run-agent", {
-          method: "POST",
-          body: formData,
-        });
-      } finally {
-        clearInterval(searchInterval);
-      }
-
-      // Step 4: Ranking
-      advanceStep(4, "Scoring and comparing...");
-      await delay(400);
-
-      if (!res.ok) {
-        throw new Error("Agent failed");
-      }
-
-      const data = await res.json();
-
-      // Step 5: Explaining
-      advanceStep(5, "Generating recommendation...");
-      await delay(300);
-
-      completeAllSteps();
-
-      setResult({
-        bestArea: data.bestArea,
-        areaReason: data.areaReason,
-        bestOverall: data.bestOverall,
-        cheapestAcceptable: data.cheapestAcceptable,
-        backupOption: data.backupOption,
-        rejectedOptions: data.rejectedOptions,
-        explanation: data.explanation,
-        dates: data.dates,
-        budget: data.budget,
+      const res = await fetch("/api/run-agent", {
+        method: "POST",
+        body: formData,
       });
 
-      await delay(500);
-      setScreen("results");
+      if (!res.ok || !res.body) throw new Error("Agent failed");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const stepDetails: Record<number, string> = {
+        1: "Extracting travel data...",
+        2: "Analyzing locations...",
+        3: "Browsing Booking.com...",
+        4: "Scoring and comparing...",
+        5: "Generating recommendation...",
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          try {
+            const event = JSON.parse(line.slice(5).trim());
+
+            if (event.type === "step") {
+              setStepStatus(event.id, event.status, stepDetails[event.id]);
+            } else if (event.type === "streaming_url") {
+              setStreamingUrl(event.url);
+            } else if (event.type === "result") {
+              setResult({
+                bestArea: event.bestArea,
+                areaReason: event.areaReason,
+                bestOverall: event.bestOverall,
+                cheapestAcceptable: event.cheapestAcceptable,
+                backupOption: event.backupOption,
+                rejectedOptions: event.rejectedOptions,
+                explanation: event.explanation,
+                dates: event.dates,
+                budget: event.budget,
+              });
+              await delay(500);
+              setScreen("results");
+            } else if (event.type === "error") {
+              throw new Error(event.message);
+            }
+          } catch {
+            // ignore malformed events
+          }
+        }
+      }
     } catch (err) {
       console.error(err);
       setSteps((prev) =>
@@ -242,21 +236,11 @@ export default function Home() {
   // ── Progress Screen ──
   if (screen === "progress") {
     return (
-      <div className="mx-auto max-w-lg px-6 py-20">
-        <div className="text-center mb-10">
+      <div className="mx-auto max-w-4xl px-6 py-12">
+        <div className="text-center mb-8">
           <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 flex items-center justify-center mb-4 animate-pulse">
-            <svg
-              className="w-8 h-8 text-violet-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"
-              />
+            <svg className="w-8 h-8 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
             </svg>
           </div>
           <h2 className="text-2xl font-bold mb-1">Agent is working</h2>
@@ -265,7 +249,39 @@ export default function Home() {
           </p>
         </div>
 
-        <AgentProgress steps={steps} />
+        <div className="flex flex-col lg:flex-row gap-8">
+          {/* Steps */}
+          <div className="lg:w-72 shrink-0">
+            <AgentProgress steps={steps} />
+          </div>
+
+          {/* Live browser preview */}
+          <div className="flex-1">
+            {streamingUrl ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live agent browser
+                </p>
+                <div className="rounded-xl overflow-hidden border border-border/40 bg-card" style={{ height: "420px" }}>
+                  <iframe
+                    src={streamingUrl}
+                    className="w-full h-full"
+                    sandbox="allow-scripts allow-same-origin"
+                    title="TinyFish live preview"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/20 bg-card/30 flex flex-col items-center justify-center text-center gap-3" style={{ height: "420px" }}>
+                <svg className="w-8 h-8 text-muted-foreground/30 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <p className="text-xs text-muted-foreground/50">Live browser preview will appear here<br />once the agent starts searching</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

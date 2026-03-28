@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { parseFile } from "@/lib/file-parser";
 import { parseItinerary, selectArea, explainDecision } from "@/lib/openai";
 import { fetchTinyFish } from "@/lib/tinyfish";
@@ -7,66 +7,93 @@ import { Listing } from "@/types/hotel";
 import mockData from "@/data/mock-hotels.json";
 
 export async function POST(req: NextRequest) {
-  try {
-    const formData = await req.formData();
+  const encoder = new TextEncoder();
 
-    const inputText = formData.get("text") as string;
-    const file = formData.get("file") as File | null;
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: object) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      };
 
-    let tripText = inputText;
+      try {
+        const formData = await req.formData();
+        const inputText = formData.get("text") as string;
+        const file = formData.get("file") as File | null;
 
-    if (file) {
-      tripText = await parseFile(file);
-    }
+        let tripText = inputText;
+        if (file) {
+          tripText = await parseFile(file);
+        }
 
-    if (!tripText || tripText.trim().length === 0) {
-      return NextResponse.json(
-        { error: "No itinerary text provided" },
-        { status: 400 }
-      );
-    }
+        if (!tripText || tripText.trim().length === 0) {
+          send({ type: "error", message: "No itinerary text provided" });
+          controller.close();
+          return;
+        }
 
-    // 1. Parse itinerary
-    const parsed = await parseItinerary(tripText);
+        // Step 1 — Parse itinerary
+        send({ type: "step", id: 1, status: "active" });
+        const parsed = await parseItinerary(tripText);
+        send({ type: "step", id: 1, status: "done" });
 
-    // 2. Select best area
-    const { bestArea, reason: areaReason } = await selectArea(parsed);
+        // Step 2 — Select area
+        send({ type: "step", id: 2, status: "active" });
+        const { bestArea, reason: areaReason } = await selectArea(parsed);
+        send({ type: "step", id: 2, status: "done" });
 
-    // 3. TinyFish search
-    let listings: Listing[];
-    try {
-      listings = await fetchTinyFish({
-        area: bestArea,
-        budget: parsed.budget,
-        dates: parsed.dates,
-      });
-    } catch (err) {
-      console.warn("TinyFish unavailable, using mock data:", err);
-      listings = mockData as Listing[];
-    }
+        // Step 3 — TinyFish search (streams back the live preview URL)
+        send({ type: "step", id: 3, status: "active" });
+        let listings: Listing[];
+        try {
+          listings = await fetchTinyFish({
+            area: bestArea,
+            budget: parsed.budget,
+            dates: parsed.dates,
+            onStreamingUrl: (url) => send({ type: "streaming_url", url }),
+          });
+        } catch (err) {
+          console.warn("TinyFish unavailable, using mock data:", err);
+          listings = mockData as Listing[];
+        }
+        send({ type: "step", id: 3, status: "done" });
 
-    // 4. Rank results
-    const ranked = rankListings(listings, parsed, bestArea);
+        // Step 4 — Rank
+        send({ type: "step", id: 4, status: "active" });
+        const ranked = rankListings(listings, parsed, bestArea);
+        send({ type: "step", id: 4, status: "done" });
 
-    // 5. Explain decision
-    const explanation = await explainDecision(ranked, parsed);
+        // Step 5 — Explain
+        send({ type: "step", id: 5, status: "active" });
+        const explanation = await explainDecision(ranked, parsed);
+        send({ type: "step", id: 5, status: "done" });
 
-    return NextResponse.json({
-      bestArea,
-      areaReason,
-      bestOverall: ranked.bestOverall,
-      cheapestAcceptable: ranked.cheapestAcceptable,
-      backupOption: ranked.backupOption,
-      rejectedOptions: ranked.rejectedOptions,
-      explanation,
-      dates: parsed.dates,
-      budget: parsed.budget,
-    });
-  } catch (error) {
-    console.error("Agent failed:", error);
-    return NextResponse.json(
-      { error: "Agent failed. Please try again." },
-      { status: 500 }
-    );
-  }
+        // Final result
+        send({
+          type: "result",
+          bestArea,
+          areaReason,
+          bestOverall: ranked.bestOverall,
+          cheapestAcceptable: ranked.cheapestAcceptable,
+          backupOption: ranked.backupOption,
+          rejectedOptions: ranked.rejectedOptions,
+          explanation,
+          dates: parsed.dates,
+          budget: parsed.budget,
+        });
+      } catch (error) {
+        console.error("Agent failed:", error);
+        send({ type: "error", message: "Agent failed. Please try again." });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
