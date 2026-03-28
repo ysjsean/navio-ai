@@ -1,0 +1,74 @@
+[
+  {
+    "name": "Citadines Shinjuku Tokyo",
+    "price": 120,
+    "rating": 4.3,
+    "area": "Shinjuku",
+    "policy": "Free cancellation, late check-in available",
+    "url": "https://booking.com/citadines-shinjuku",
+    "source": "serviced-apartment"
+  },
+  {
+    "name": "Hotel Gracery Shinjuku",
+    "price": 95,
+    "rating": 4.5,
+    "area": "Shinjuku",
+    "policy": "Pay at property, 24h front desk",
+    "url": "https://booking.com/gracery-shinjuku",
+    "source": "hotel"
+  },
+  {
+    "name": "Shinjuku Cozy Studio Airbnb",
+    "price": 65,
+    "rating": 4.1,
+    "area": "Shinjuku",
+    "policy": "Self check-in, flexible cancel",
+    "url": "https://airbnb.com/rooms/shinjuku-cozy",
+    "source": "airbnb"
+  },
+  {
+    "name": "Book And Bed Tokyo Shinjuku",
+    "price": 35,
+    "rating": 3.8,
+    "area": "Shinjuku",
+    "policy": "Non-refundable, shared bathroom",
+    "url": "https://hostelworld.com/book-and-bed",
+    "source": "hostel"
+  },
+  {
+    "name": "Shibuya Excel Hotel Tokyu",
+    "price": 140,
+    "rating": 4.4,
+    "area": "Shibuya",
+    "policy": "Free cancellation, breakfast included",
+    "url": "https://booking.com/excel-shibuya",
+    "source": "hotel"
+  },
+  {
+    "name": "Airbnb Shibuya Crossing View",
+    "price": 85,
+    "rating": 4.6,
+    "area": "Shibuya",
+    "policy": "Self check-in, strict cancellation",
+    "url": "https://airbnb.com/rooms/shibuya-crossing",
+    "source": "airbnb"
+  },
+  {
+    "name": "UNPLAN Shinjuku Hostel",
+    "price": 28,
+    "rating": 3.2,
+    "area": "Shinjuku",
+    "policy": "Non-refundable, no private bathroom",
+    "url": "https://hostelworld.com/unplan-shinjuku",
+    "source": "hostel"
+  },
+  {
+    "name": "Oakwood Premier Tokyo",
+    "price": 180,
+    "rating": 4.7,
+    "area": "Tokyo Station",
+    "policy": "Free cancellation, kitchen included, late check-in",
+    "url": "https://booking.com/oakwood-tokyo",
+    "source": "serviced-apartment"
+  }
+]
