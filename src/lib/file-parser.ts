@@ -1,11 +1,9 @@
-import { PDFParse } from "pdf-parse";
-import * as mammoth from "mammoth";
-
 export async function parseFile(file: File): Promise<string> {
   const buffer = Buffer.from(await file.arrayBuffer());
   const ext = file.name.split(".").pop()?.toLowerCase();
 
   if (ext === "pdf") {
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ verbosity: 0 });
     // @ts-expect-error - load is considered private in the type definitions but is needed
     await parser.load(buffer);
@@ -15,6 +13,7 @@ export async function parseFile(file: File): Promise<string> {
   }
 
   if (ext === "docx") {
+    const mammoth = await import("mammoth");
     const result = await mammoth.extractRawText({ buffer });
     return result.value;
   }
