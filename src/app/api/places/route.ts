@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-export interface Place {
-  name: string;
-  type: "food" | "cafe" | "attraction" | "hotel";
-  lat: number;
-  lng: number;
-}
+import type { Place } from "@/types/places";
 
 export interface PlacesResponse {
   lat: number;

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { Place } from "@/app/api/places/route";
+import { Place } from "@/types/places";
 
 // Leaflet must be loaded client-side only
 const MapContainer = dynamic(
