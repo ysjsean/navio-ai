@@ -67,68 +67,97 @@ export function PriceWatchForm({ result }: Props) {
           </svg>
           Watch prices
         </h3>
-        <p className="text-xs text-muted-foreground mb-4">
+        <p className="text-xs text-muted-foreground mb-5">
           Get a Telegram message when prices drop for{" "}
           <span className="text-foreground font-medium">{result.bestArea}</span>.
         </p>
 
-        {state === "success" ? (
-          <div className="flex items-center gap-2 text-sm text-emerald-400">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            Watch set! Check Telegram for confirmation.
+        <div className="flex flex-col sm:flex-row gap-6">
+          {/* Setup instructions */}
+          <div className="sm:w-48 shrink-0">
+            <p className="text-xs font-medium text-muted-foreground mb-2">How to connect</p>
+            <ol className="space-y-2">
+              {[
+                { step: "1", text: "Open Telegram" },
+                {
+                  step: "2",
+                  text: (
+                    <>
+                      Search{" "}
+                      <a
+                        href="https://t.me/userinfobot"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-cyan-400 hover:underline"
+                      >
+                        @userinfobot
+                      </a>
+                    </>
+                  ),
+                },
+                { step: "3", text: 'Send it any message' },
+                { step: "4", text: "Copy the numeric ID it replies with" },
+                { step: "5", text: "Paste it below" },
+              ].map(({ step, text }) => (
+                <li key={step} className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    {step}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{text}</span>
+                </li>
+              ))}
+            </ol>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">
-                Your Telegram Chat ID
-              </label>
-              <input
-                type="text"
-                value={chatId}
-                onChange={(e) => setChatId(e.target.value)}
-                placeholder="e.g. 123456789"
-                className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border/60 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/30 placeholder:text-muted-foreground/40 transition-colors"
-              />
-              <p className="text-xs text-muted-foreground/60">
-                Message{" "}
-                <a
-                  href="https://t.me/userinfobot"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-cyan-400 hover:underline"
+
+          {/* Form */}
+          <div className="flex-1">
+            {state === "success" ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Watch set! Check Telegram for confirmation.
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-muted-foreground">
+                    Your Telegram Chat ID
+                  </label>
+                  <input
+                    type="text"
+                    value={chatId}
+                    onChange={(e) => setChatId(e.target.value)}
+                    placeholder="e.g. 123456789"
+                    className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-border/60 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/30 placeholder:text-muted-foreground/40 transition-colors"
+                  />
+                </div>
+
+                {state === "error" && (
+                  <p className="text-xs text-red-400">{errorMsg}</p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={state === "loading" || !chatId.trim()}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
                 >
-                  @userinfobot
-                </a>{" "}
-                on Telegram to get your chat ID.
-              </p>
-            </div>
-
-            {state === "error" && (
-              <p className="text-xs text-red-400">{errorMsg}</p>
+                  {state === "loading" ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Setting watch...
+                    </>
+                  ) : (
+                    "Notify me on Telegram"
+                  )}
+                </button>
+              </form>
             )}
-
-            <button
-              type="submit"
-              disabled={state === "loading" || !chatId.trim()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
-            >
-              {state === "loading" ? (
-                <>
-                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Setting watch...
-                </>
-              ) : (
-                "Notify me on Telegram"
-              )}
-            </button>
-          </form>
-        )}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
