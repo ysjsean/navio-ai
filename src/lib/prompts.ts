@@ -82,33 +82,29 @@ export function tinyfishInstruction(
   checkout: string,
   budget: string
 ): string {
-  return `Find accommodations in ${area} from multiple reliable sources.
+  return `You are on a Booking.com search page for accommodations in ${area} (${checkin} to ${checkout}, budget under $${budget}/night).
 
-Goal:
-We need genuine, bookable accommodation listings that match the user's trip details. 
-Do not just look at one website. Search across multiple providers.
+Task:
+Extract the top 5 listings visible on this page. Do NOT navigate to other pages or sites.
 
-Filters to apply:
-- Dates: ${checkin} to ${checkout}
-- Budget: under ${budget} per night
-- Room type: Private room or entire place
-- Preferences: Near transport, late check-in allowed
+For each listing collect:
+- name: hotel/property name
+- price: numeric nightly price in USD (digits only, e.g. 120)
+- rating: score out of 10 converted to out of 5 (e.g. 8.4 → 4.2)
+- area: neighbourhood shown on the card
+- policy: cancellation or check-in policy shown (e.g. "Free cancellation", "Non-refundable")
+- url: the direct property URL (must start with https://www.booking.com/hotel/)
 
-Tasks:
-1. Review the initial Google search results for accommodations in ${area}.
-2. Open at least 3 different booking platforms from the search results (e.g., Booking.com, Airbnb, Expedia, Agoda).
-3. On each platform, apply the necessary filters and extract 1-2 of the best legitimate listings.
-4. For each listing, ensure you capture the actual, direct booking URL (legit direct links to the property, NOT the search results page).
-
-Return ONLY a JSON array with this exact structure (no markdown fences):
+Return ONLY a JSON array — no markdown, no explanation:
 [
   {
-    "name": "Listing Name",
-    "price": "Numeric price per night (e.g. 150)",
-    "rating": "Rating out of 5 (e.g. 4.5)",
-    "area": "Specific neighborhood",
-    "policy": "Cancellation/Check-in policies",
-    "url": "Exact HTTP booking link for this specific property"
+    "name": "...",
+    "price": 120,
+    "rating": 4.2,
+    "area": "...",
+    "policy": "...",
+    "url": "https://www.booking.com/hotel/..."
   }
 ]`;
 }
+

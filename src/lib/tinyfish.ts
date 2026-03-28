@@ -25,8 +25,8 @@ export async function fetchTinyFish(params: TinyFishParams): Promise<Listing[]> 
     params.budget || "150"
   );
 
-  const encodedArea = encodeURIComponent(`accommodations in ${params.area}`);
-  const searchUrl = `https://www.google.com/search?q=${encodedArea}`;
+  const encodedArea = encodeURIComponent(params.area);
+  const searchUrl = `https://www.booking.com/searchresults.html?ss=${encodedArea}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000); // 60s timeout
@@ -53,30 +53,50 @@ export async function fetchTinyFish(params: TinyFishParams): Promise<Listing[]> 
     throw new Error(`TinyFish API error: ${response.status}`);
   }
 
-  const responseText = await response.text();
-  let data: any = { output: "" };
+  // Read SSE stream line-by-line and stop as soon as COMPLETE arrives
+  let data: any = null;
 
-  // If the endpoint is `run-sse`, it will stream Server-Sent Events (data: {...})
-  if (responseText.includes("data:")) {
-    const lines = responseText.split("\n");
-    for (const line of lines) {
-      if (line.startsWith("data:")) {
+  if (response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const jsonStr = line.slice(5).trim();
+        if (!jsonStr || jsonStr === "[DONE]") continue;
+
         try {
-          const jsonStr = line.replace("data:", "").trim();
-          if (jsonStr === "[DONE]") continue;
-          
           const chunk = JSON.parse(jsonStr);
-          // Look for final output payload
-          if (chunk.type === "COMPLETE" || chunk.status === "completed" || chunk.status === "done" || chunk.output || chunk.results) {
+          if (chunk.type === "COMPLETE") {
+            data = chunk.result ?? chunk;
+            reader.cancel(); // stop reading — we have what we need
+            break outer;
+          }
+          // Fallback: capture last seen completed/done status
+          if (chunk.status === "completed" || chunk.status === "done") {
             data = chunk.result ?? chunk;
           }
-        } catch (err) {
-          // ignore malformed SSE json fragments
+        } catch {
+          // ignore malformed SSE fragments
         }
       }
     }
-  } else {
-    // Normal synchronous JSON response
+  }
+
+  // Fallback: read full body if not SSE (synchronous JSON endpoint)
+  if (!data) {
+    const responseText = await (response.bodyUsed
+      ? Promise.resolve("")
+      : response.text());
     try {
       data = JSON.parse(responseText);
     } catch {
