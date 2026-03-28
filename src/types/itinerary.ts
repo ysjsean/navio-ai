@@ -1,34 +1,41 @@
+export type RunMode = "accommodation-only" | "full-agent";
+
+export interface BudgetInput {
+  mode: "total" | "nightly";
+  amount: number;
+  currency: string;
+}
+
+export interface TripInput {
+  runMode: RunMode;
+  city: string;
+  checkIn: string;
+  checkOut: string;
+  nights: number;
+  pax: number;
+  rooms: number;
+  budget: BudgetInput;
+  roomType: string;
+  propertyTypes: Array<"hotel" | "airbnb" | "hostel" | "serviced-apartment">;
+  preferences: string[];
+  itineraryText?: string;
+  sourceText?: string;
+}
+
 export interface ParsedItinerary {
   city: string;
-  days: string[];
+  checkIn: string;
+  checkOut: string;
+  nights: number;
+  pax: number;
+  rooms: number;
+  budget: number;
   locations: string[];
-  constraints: string[];
   preferences: string[];
-  budget?: string;
-  dates?: {
-    checkin: string;
-    checkout: string;
-  };
+  constraints: string[];
 }
 
 export interface AreaSelection {
   bestArea: string;
   reason: string;
-}
-
-export interface AgentStep {
-  id: number;
-  label: string;
-  status: "pending" | "active" | "done" | "error";
-  detail?: string;
-}
-
-export interface AgentResult {
-  bestArea: string;
-  areaReason: string;
-  bestOverall: import("./hotel").Listing | null;
-  cheapestAcceptable: import("./hotel").Listing | null;
-  backupOption: import("./hotel").Listing | null;
-  rejectedOptions: import("./hotel").RejectedListing[];
-  explanation: string;
 }

@@ -1,0 +1,110 @@
+{
+  "sites_checked": [
+    {
+      "site_name": "Booking.com",
+      "search_url": "https://www.booking.com/searchresults.html?ss=Ueno",
+      "filters_applied": {
+        "checkIn": "2026-06-10",
+        "checkOut": "2026-06-14",
+        "pax": 2,
+        "rooms": 1,
+        "budget": 800,
+        "roomType": "private room"
+      },
+      "missing_filters": ["late check-in"]
+    },
+    {
+      "site_name": "Airbnb",
+      "search_url": "https://www.airbnb.com/s/Ueno/homes",
+      "filters_applied": {
+        "checkIn": "2026-06-10",
+        "checkOut": "2026-06-14",
+        "pax": 2,
+        "rooms": 1,
+        "budget": 800,
+        "roomType": "private room"
+      },
+      "missing_filters": []
+    }
+  ],
+  "listings": [
+    {
+      "site_name": "Booking.com",
+      "listing_name": "Tokyu Stay Ueno",
+      "listing_url": "https://www.booking.com/hotel/jp/tokyu-stay-ueno.en-gb.html",
+      "search_url": "https://www.booking.com/searchresults.html?ss=Ueno",
+      "area": "Ueno",
+      "price_per_night": 180,
+      "total_price": 720,
+      "currency": "SGD",
+      "rating": 8.6,
+      "review_count": 1280,
+      "room_type": "Double Room",
+      "max_guests": 2,
+      "beds": "1 double bed",
+      "transport_note": "5 min walk to Ueno Station",
+      "checkin_policy": "24-hour front desk",
+      "cancellation_policy": "Free cancellation before 8 June",
+      "matched_filters": {
+        "pax": true,
+        "rooms": true,
+        "dates": true,
+        "budget": true,
+        "roomType": true
+      },
+      "issues": []
+    },
+    {
+      "site_name": "Airbnb",
+      "listing_name": "Modern Ueno Studio",
+      "listing_url": "https://www.airbnb.com/rooms/12345678",
+      "search_url": "https://www.airbnb.com/s/Ueno/homes",
+      "area": "Ueno",
+      "price_per_night": 165,
+      "total_price": 660,
+      "currency": "SGD",
+      "rating": 8.2,
+      "review_count": 410,
+      "room_type": "Private studio",
+      "max_guests": 2,
+      "beds": "1 queen bed",
+      "transport_note": "8 min walk to Ueno Station",
+      "checkin_policy": "Self check-in until 11 PM",
+      "cancellation_policy": "Moderate cancellation policy",
+      "matched_filters": {
+        "pax": true,
+        "rooms": true,
+        "dates": true,
+        "budget": true,
+        "roomType": true
+      },
+      "issues": ["No free cancellation"]
+    },
+    {
+      "site_name": "Hostelworld",
+      "listing_name": "Ueno Capsule Mix",
+      "listing_url": "https://www.hostelworld.com/pwa/hosteldetails.php/Ueno-Capsule-Mix/",
+      "search_url": "https://www.hostelworld.com/st/hostels/asia/japan/tokyo/d/ueno",
+      "area": "Ueno",
+      "price_per_night": 90,
+      "total_price": 360,
+      "currency": "SGD",
+      "rating": 7.1,
+      "review_count": 190,
+      "room_type": "Shared capsule",
+      "max_guests": 1,
+      "beds": "1 capsule",
+      "transport_note": "10 min walk to station",
+      "checkin_policy": "Check-in until 10 PM",
+      "cancellation_policy": "Non-refundable",
+      "matched_filters": {
+        "pax": false,
+        "rooms": false,
+        "dates": true,
+        "budget": true,
+        "roomType": false
+      },
+      "issues": ["Shared room", "No late check-in"]
+    }
+  ]
+}

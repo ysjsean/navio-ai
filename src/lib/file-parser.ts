@@ -1,23 +1,32 @@
-import { PDFParse } from "pdf-parse";
-import * as mammoth from "mammoth";
+import mammoth from "mammoth";
+import pdf from "pdf-parse";
 
 export async function parseFile(file: File): Promise<string> {
-  const buffer = Buffer.from(await file.arrayBuffer());
   const ext = file.name.split(".").pop()?.toLowerCase();
+  const buffer = Buffer.from(await file.arrayBuffer());
 
-  if (ext === "pdf") {
-    const parser = new PDFParse({ verbosity: 0 });
-    // @ts-expect-error - load is considered private in the type definitions but is needed
-    await parser.load(buffer);
-    const textResult = await parser.getText();
-    parser.destroy();
-    return textResult.text || textResult.pages?.map((p) => p.text).join("\n") || "";
+  try {
+    if (ext === "pdf") {
+      const data = await pdf(buffer);
+      const text = (data.text || "").trim();
+      if (!text) {
+        throw new Error("The PDF file was parsed but no readable text was found.");
+      }
+      return text;
+    }
+
+    if (ext === "docx") {
+      const result = await mammoth.extractRawText({ buffer });
+      const text = (result.value || "").trim();
+      if (!text) {
+        throw new Error("The DOCX file was parsed but no readable text was found.");
+      }
+      return text;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown parser error";
+    throw new Error(`Failed to parse ${file.name}: ${message}`);
   }
 
-  if (ext === "docx") {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
-  }
-
-  throw new Error(`Unsupported file type: .${ext}. Only .pdf and .docx are supported.`);
+  throw new Error(`Unsupported file type: .${ext || "unknown"}. Only PDF and DOCX are supported.`);
 }

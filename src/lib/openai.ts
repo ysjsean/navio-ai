@@ -1,113 +1,142 @@
 import OpenAI from "openai";
-import { ParsedItinerary, AreaSelection } from "@/types/itinerary";
-import { RankedResults } from "@/types/hotel";
+import { z } from "zod";
+import { ParsedItinerary } from "@/types/itinerary";
+import { RankedResults } from "@/types/listing";
 import {
-  parseItineraryPrompt,
-  selectAreaPrompt,
   explainDecisionPrompt,
-} from "./prompts";
+  parseItineraryPrompt,
+  selectBestAreaPrompt,
+} from "@/lib/prompts";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+
+const parsedItinerarySchema = z.object({
+  city: z.string().default(""),
+  checkIn: z.string().default(""),
+  checkOut: z.string().default(""),
+  nights: z.number().int().nonnegative().default(0),
+  pax: z.number().int().positive().default(1),
+  rooms: z.number().int().positive().default(1),
+  budget: z.number().nonnegative().default(0),
+  locations: z.array(z.string()).default([]),
+  preferences: z.array(z.string()).default([]),
+  constraints: z.array(z.string()).default([]),
 });
 
-const MODEL = "gpt-4o";
+const areaSchema = z.object({
+  bestArea: z.string().min(1),
+  reason: z.string().min(1),
+});
 
-export async function parseItinerary(
-  tripText: string
-): Promise<ParsedItinerary> {
+export async function parseItinerary(inputText: string): Promise<ParsedItinerary> {
   try {
-    const response = await openai.chat.completions.create({
-      model: MODEL,
-      messages: [
-        {
-          role: "user",
-          content: parseItineraryPrompt(tripText),
-        },
-      ],
-      temperature: 0.2,
-    });
-
-    const content = response.choices[0]?.message?.content ?? "{}";
-    return JSON.parse(content) as ParsedItinerary;
-  } catch (error) {
-    console.error("Failed to parse itinerary:", error);
-    // Fallback: return a minimal parsed itinerary
+    const raw = await askModelForJson(parseItineraryPrompt(inputText));
+    return parsedItinerarySchema.parse(raw);
+  } catch {
     return {
-      city: "Tokyo",
-      days: ["Day 1: Explore the city"],
-      locations: ["City center"],
-      constraints: [],
+      city: "",
+      checkIn: "",
+      checkOut: "",
+      nights: 0,
+      pax: 1,
+      rooms: 1,
+      budget: 0,
+      locations: [],
       preferences: [],
-      budget: "150",
-      dates: { checkin: "2025-06-01", checkout: "2025-06-05" },
+      constraints: [],
     };
   }
 }
 
-export async function selectArea(
+export async function selectBestArea(
   parsed: ParsedItinerary
-): Promise<AreaSelection> {
+): Promise<{ bestArea: string; reason: string }> {
+  try {
+    const raw = await askModelForJson(selectBestAreaPrompt(parsed));
+    const selected = areaSchema.parse(raw);
+    return {
+      bestArea: selected.bestArea,
+      reason: selected.reason,
+    };
+  } catch {
+    const fallbackArea = parsed.locations[0] || `${parsed.city} City Center`.trim() || "City Center";
+    return {
+      bestArea: fallbackArea,
+      reason:
+        "Fallback area selected from itinerary anchors to preserve travel efficiency.",
+    };
+  }
+}
+
+export async function explainDecision(args: {
+  itinerary: ParsedItinerary;
+  bestArea: string;
+  ranked: RankedResults;
+}): Promise<string> {
   try {
     const response = await openai.chat.completions.create({
       model: MODEL,
       messages: [
         {
+          role: "system",
+          content:
+            "You explain accommodation trade-offs clearly. Mention constraints and reasons for rejections.",
+        },
+        {
           role: "user",
-          content: selectAreaPrompt(JSON.stringify(parsed, null, 2)),
+          content: explainDecisionPrompt({
+            itinerary: args.itinerary,
+            bestArea: args.bestArea,
+            rankedResults: args.ranked,
+          }),
         },
       ],
       temperature: 0.2,
-    });
-
-    const content = response.choices[0]?.message?.content ?? "{}";
-    return JSON.parse(content) as AreaSelection;
-  } catch (error) {
-    console.error("Failed to select area:", error);
-    return {
-      bestArea: "City Center",
-      reason: "Centrally located for easy access to all itinerary locations.",
-    };
-  }
-}
-
-export async function explainDecision(
-  ranked: RankedResults,
-  itinerary: ParsedItinerary
-): Promise<string> {
-  try {
-    const best = JSON.stringify(ranked.bestOverall, null, 2);
-    const others = JSON.stringify(
-      [
-        ranked.cheapestAcceptable,
-        ranked.backupOption,
-        ...ranked.rejectedOptions.slice(0, 3),
-      ].filter(Boolean),
-      null,
-      2
-    );
-
-    const response = await openai.chat.completions.create({
-      model: MODEL,
-      messages: [
-        {
-          role: "user",
-          content: explainDecisionPrompt(
-            best,
-            others,
-            JSON.stringify(itinerary, null, 2)
-          ),
-        },
-      ],
-      temperature: 0.4,
     });
 
     return (
-      response.choices[0]?.message?.content ??
-      "Unable to generate explanation."
+      response.choices[0]?.message?.content?.trim() ||
+      "The selected option best balanced itinerary fit, transport convenience, room match, and policy flexibility. Cheaper listings were rejected due to weaker fit against critical constraints."
     );
-  } catch (error) {
-    console.error("Failed to explain decision:", error);
-    return "The best option was selected based on a balance of price, location proximity to your itinerary, transport access, and booking flexibility. Cheaper alternatives were rejected due to poor ratings, inconvenient location, or restrictive policies.";
+  } catch {
+    return "The selected option best balanced itinerary fit, transport convenience, room match, and policy flexibility. Cheaper listings were rejected due to weaker fit against critical constraints.";
+  }
+}
+
+async function askModelForJson(prompt: string): Promise<unknown> {
+  const completion = await openai.chat.completions.create({
+    model: MODEL,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: "Return strict JSON only with no markdown.",
+      },
+      {
+        role: "user",
+        content: prompt,
+      },
+    ],
+    temperature: 0,
+  });
+
+  const content = completion.choices[0]?.message?.content || "{}";
+  return safeJsonParse(content);
+}
+
+function safeJsonParse(content: string): unknown {
+  try {
+    return JSON.parse(content);
+  } catch {
+    const fenced = content.match(/```json\s*([\s\S]*?)```/i);
+    if (fenced?.[1]) {
+      return JSON.parse(fenced[1]);
+    }
+    const objectMatch = content.match(/\{[\s\S]*\}/);
+    if (objectMatch?.[0]) {
+      return JSON.parse(objectMatch[0]);
+    }
+    return {};
   }
 }

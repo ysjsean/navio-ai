@@ -1,16 +1,22 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Fraunces, Manrope } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 
-const inter = Inter({
+const manrope = Manrope({
   variable: "--font-sans",
   subsets: ["latin"],
 });
 
+const fraunces = Fraunces({
+  variable: "--font-serif",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
-  title: "TripWise AI — Smart Accommodation Decisions",
+  title: "Navio-AI",
   description:
-    "An itinerary-aware accommodation decision agent that analyzes your trip, finds the best area, and recommends the cheapest viable stay.",
+    "An itinerary-aware accommodation decision agent that selects the best area first, then searches real accommodation websites in that area.",
 };
 
 export default function RootLayout({
@@ -19,46 +25,43 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} dark h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-background font-sans">
-        {/* Nav */}
-        <header className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-xl">
-          <div className="mx-auto max-w-5xl flex items-center justify-between px-6 py-4">
-            <a href="/" className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/25 group-hover:shadow-violet-500/40 transition-shadow">
-                <svg
-                  className="w-4 h-4 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                  />
-                </svg>
-              </div>
-              <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
-                TripWise AI
-              </span>
-            </a>
-            <span className="text-xs text-muted-foreground/50 hidden sm:block">
-              Itinerary-Aware Accommodation Agent
-            </span>
-          </div>
-        </header>
+    <html
+      lang="en"
+      className={`${manrope.variable} ${fraunces.variable} dark h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <body
+        className="min-h-full bg-background font-sans"
+        suppressHydrationWarning
+      >
+        <div className="flex min-h-screen flex-col">
+          <header className="sticky top-0 z-40 border-b border-border/40 bg-background/90 backdrop-blur-md">
+            <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+              <Link href="/" className="font-serif text-xl font-semibold">
+                Navio-AI
+              </Link>
+              <nav className="flex items-center gap-4 text-sm">
+                <Link href="/search" className="hover:underline">
+                  Search
+                </Link>
+                <Link href="/run" className="hover:underline">
+                  Run
+                </Link>
+                <Link href="/results" className="hover:underline">
+                  Results
+                </Link>
+              </nav>
+            </div>
+          </header>
 
-        {/* Main content */}
-        <main className="flex-1">{children}</main>
+          <main className="flex-1">{children}</main>
 
-        {/* Footer */}
-        <footer className="border-t border-border/30 py-6">
-          <div className="mx-auto max-w-5xl px-6 text-center text-xs text-muted-foreground/40">
-            TripWise AI · Decision Agent · Not a travel planner
-          </div>
-        </footer>
+          <footer className="border-t py-6">
+            <div className="mx-auto max-w-6xl px-6 text-xs text-muted-foreground">
+              Navio-AI · Itinerary-aware accommodation decision agent · Not a travel planner
+            </div>
+          </footer>
+        </div>
       </body>
     </html>
   );

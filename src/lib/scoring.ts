@@ -1,136 +1,131 @@
-import { Listing, RejectedListing, RankedResults } from "@/types/hotel";
 import { ParsedItinerary } from "@/types/itinerary";
+import { Listing, RankedResults, RejectedOption } from "@/types/listing";
 
-// Scoring weights
 const WEIGHTS = {
-  price: 0.4,
-  itineraryFit: 0.3,
-  transport: 0.15,
-  policy: 0.15,
-};
+  price: 30,
+  itineraryFit: 25,
+  transport: 15,
+  policy: 15,
+  roomFit: 15,
+} as const;
 
-// Minimum acceptable rating
-const MIN_RATING = 3.5;
+const MIN_ACCEPTABLE_RATING = 7.2;
 
 export function rankListings(
   listings: Listing[],
-  parsed: ParsedItinerary,
-  bestArea?: string
+  itinerary: ParsedItinerary,
+  bestArea: string
 ): RankedResults {
-  const accepted: (Listing & { score: number })[] = [];
-  const rejected: RejectedListing[] = [];
+  const viable: Listing[] = [];
+  const rejectedOptions: RejectedOption[] = [];
 
   for (const listing of listings) {
-    const rejection = checkRejection(listing, parsed, bestArea);
-    if (rejection) {
-      rejected.push({ ...listing, rejectionReason: rejection });
+    const rejectionReasons = getHardRejections(listing, itinerary, bestArea);
+    if (rejectionReasons.length > 0) {
+      rejectedOptions.push({ listing, reasons: rejectionReasons });
       continue;
     }
 
-    const score = scoreListing(listing, parsed, bestArea);
-    accepted.push({ ...listing, score });
+    viable.push({
+      ...listing,
+      score: calculateScore(listing, itinerary, bestArea),
+      score_breakdown: buildScoreBreakdown(listing, itinerary, bestArea),
+    });
   }
 
-  // Sort by score descending (higher is better)
-  accepted.sort((a, b) => b.score - a.score);
+  viable.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-  // Sort accepted by price for cheapest acceptable
-  const byPrice = [...accepted].sort((a, b) => a.price - b.price);
+  const cheapestAcceptable = [...viable].sort(
+    (a, b) => a.total_price - b.total_price
+  )[0] ?? null;
 
   return {
-    bestOverall: accepted[0] ?? null,
-    cheapestAcceptable: byPrice[0] ?? null,
-    backupOption: accepted[1] ?? byPrice[1] ?? null,
-    rejectedOptions: rejected,
+    bestOverall: viable[0] ?? null,
+    cheapestAcceptable,
+    backupOption: viable[1] ?? null,
+    rejectedOptions,
   };
 }
 
-function checkRejection(
+function getHardRejections(
   listing: Listing,
-  parsed: ParsedItinerary,
-  bestArea?: string
-): string | null {
-  // Reject if rating is too low
-  if (listing.rating < MIN_RATING) {
-    return `Rating ${listing.rating} is below minimum ${MIN_RATING}`;
+  itinerary: ParsedItinerary,
+  bestArea: string
+): string[] {
+  const reasons: string[] = [];
+  const areaMatches = stringMatch(listing.area, bestArea);
+
+  if (!areaMatches) reasons.push(`Outside chosen area: ${bestArea}`);
+  if (listing.max_guests < itinerary.pax) reasons.push("Insufficient guest capacity");
+  if (!listing.matched_filters.rooms) reasons.push("Room count requirement not met");
+  if (!listing.matched_filters.roomType) reasons.push("Room type requirement not met");
+  if (!listing.matched_filters.dates) reasons.push("Requested dates unavailable or invalid");
+  if (listing.rating < MIN_ACCEPTABLE_RATING) {
+    reasons.push(`Rating too low (${listing.rating})`);
   }
 
-  // Reject if outside best area (when we have area info)
-  if (
-    bestArea &&
-    listing.area.toLowerCase() !== bestArea.toLowerCase() &&
-    !listing.area.toLowerCase().includes(bestArea.toLowerCase()) &&
-    !bestArea.toLowerCase().includes(listing.area.toLowerCase())
-  ) {
-    return `Located in ${listing.area}, not in recommended area ${bestArea}`;
+  const preferenceBlob = `${listing.transport_note} ${listing.checkin_policy} ${listing.cancellation_policy}`.toLowerCase();
+  if (itinerary.preferences.some((p) => p.toLowerCase().includes("late") && !preferenceBlob.includes("late") && !preferenceBlob.includes("24"))) {
+    reasons.push("Critical preference failed: late check-in");
+  }
+  if (itinerary.preferences.some((p) => p.toLowerCase().includes("free cancellation") && !preferenceBlob.includes("free cancellation"))) {
+    reasons.push("Critical preference failed: free cancellation");
   }
 
-  // Reject if constraints are mismatched
-  for (const constraint of parsed.constraints) {
-    const lower = constraint.toLowerCase();
-    const policyLower = listing.policy.toLowerCase();
-
-    if (lower.includes("late check-in") && !policyLower.includes("late check-in") && !policyLower.includes("24h")) {
-      return `Does not support late check-in (constraint: "${constraint}")`;
-    }
-
-    if (lower.includes("free cancellation") && policyLower.includes("non-refundable")) {
-      return `Non-refundable policy conflicts with "${constraint}"`;
-    }
-  }
-
-  return null;
+  return reasons;
 }
 
-function scoreListing(
+function calculateScore(
   listing: Listing,
-  parsed: ParsedItinerary,
-  bestArea?: string
+  itinerary: ParsedItinerary,
+  bestArea: string
 ): number {
-  let score = 0;
+  const breakdown = buildScoreBreakdown(listing, itinerary, bestArea);
+  return (
+    breakdown.price +
+    breakdown.itineraryFit +
+    breakdown.transport +
+    breakdown.policy +
+    breakdown.roomFit
+  );
+}
 
-  // Price score — cheaper is better, normalized (inverse)
-  // Assume max budget ~300/night; scale 0–1
-  const maxBudget = parsed.budget ? parseFloat(parsed.budget) * 1.5 : 300;
-  const priceScore = Math.max(0, 1 - listing.price / maxBudget);
-  score += priceScore * WEIGHTS.price;
+function buildScoreBreakdown(
+  listing: Listing,
+  itinerary: ParsedItinerary,
+  bestArea: string
+): Listing["score_breakdown"] {
+  const budgetFloor = itinerary.budget > 0 ? itinerary.budget : listing.total_price * 1.2;
+  const priceRatio = clamp01(1 - listing.total_price / (budgetFloor * 1.35));
+  const areaScore = stringMatch(listing.area, bestArea) ? 1 : 0;
+  const transportScore = /station|metro|train|walk|transport/i.test(listing.transport_note)
+    ? 1
+    : 0.45;
+  const policyText = `${listing.checkin_policy} ${listing.cancellation_policy}`;
+  const policyScore = /free cancellation|24-hour|24 hour|late check-in/i.test(policyText)
+    ? 1
+    : 0.5;
+  const roomScore = listing.matched_filters.roomType ? 1 : 0.4;
 
-  // Itinerary fit — is it in the best area?
-  let fitScore = 0.5; // default middle
-  if (bestArea) {
-    if (
-      listing.area.toLowerCase() === bestArea.toLowerCase() ||
-      listing.area.toLowerCase().includes(bestArea.toLowerCase())
-    ) {
-      fitScore = 1;
-    }
-  }
-  score += fitScore * WEIGHTS.itineraryFit;
+  return {
+    price: round2(priceRatio * WEIGHTS.price),
+    itineraryFit: round2(areaScore * WEIGHTS.itineraryFit),
+    transport: round2(transportScore * WEIGHTS.transport),
+    policy: round2(policyScore * WEIGHTS.policy),
+    roomFit: round2(roomScore * WEIGHTS.roomFit),
+  };
+}
 
-  // Transport score — based on policy keywords
-  let transportScore = 0.5;
-  const policyLower = listing.policy.toLowerCase();
-  if (policyLower.includes("near transport") || policyLower.includes("station")) {
-    transportScore = 1;
-  }
-  if (listing.rating >= 4.5) {
-    transportScore = Math.min(1, transportScore + 0.2);
-  }
-  score += transportScore * WEIGHTS.transport;
+function stringMatch(a: string, b: string): boolean {
+  const left = a.toLowerCase().trim();
+  const right = b.toLowerCase().trim();
+  return left === right || left.includes(right) || right.includes(left);
+}
 
-  // Policy score — flexible policies score higher
-  let policyScore = 0.5;
-  if (policyLower.includes("free cancellation") || policyLower.includes("flexible")) {
-    policyScore += 0.3;
-  }
-  if (policyLower.includes("late check-in") || policyLower.includes("24h")) {
-    policyScore += 0.2;
-  }
-  if (policyLower.includes("non-refundable")) {
-    policyScore -= 0.3;
-  }
-  policyScore = Math.max(0, Math.min(1, policyScore));
-  score += policyScore * WEIGHTS.policy;
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
 
-  return Math.round(score * 100) / 100;
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
