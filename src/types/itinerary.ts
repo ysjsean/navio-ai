@@ -18,8 +18,18 @@ export interface TripInput {
   roomType: string;
   propertyTypes: Array<"hotel" | "airbnb" | "hostel" | "serviced-apartment">;
   preferences: string[];
+  /** Dynamic search radius determined from itinerary geolocation spread */
+  searchRadiusKm?: number;
   itineraryText?: string;
   sourceText?: string;
+}
+
+export interface GeocodedLocation {
+  name: string;
+  lat: number;
+  lng: number;
+  /** Likely transit mode to reach this location, e.g. "BTS", "MRT", "bus", "walking" */
+  transitType: string;
 }
 
 export interface ParsedItinerary {
@@ -33,6 +43,10 @@ export interface ParsedItinerary {
   locations: string[];
   preferences: string[];
   constraints: string[];
+  /** Enriched with approximate coordinates and transit modes after geocoding step */
+  geocodedLocations?: GeocodedLocation[];
+  /** OpenAI-recommended search radius (km) around selected stay area */
+  searchRadiusKm?: number;
 }
 
 export interface AreaSelection {

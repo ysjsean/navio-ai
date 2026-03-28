@@ -10,6 +10,7 @@ export default function SearchPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<RunMode>("full-agent");
+  const [showLivePreview, setShowLivePreview] = useState(false);
 
   const handleSubmit = async ({ values, file }: TripFormSubmission) => {
     setIsLoading(true);
@@ -18,6 +19,7 @@ export default function SearchPage() {
     const payload = {
       values,
       mode,
+      showLivePreview,
       file: file
         ? {
             name: file.name,
@@ -28,7 +30,9 @@ export default function SearchPage() {
     };
 
     sessionStorage.setItem(`navio-pending-${runId}`, JSON.stringify(payload));
-    router.push(`/run?runId=${encodeURIComponent(runId)}`);
+    router.push(
+      `/run?runId=${encodeURIComponent(runId)}&preview=${showLivePreview ? "1" : "0"}`,
+    );
   };
 
   return (
@@ -88,7 +92,13 @@ export default function SearchPage() {
         </button>
       </div>
 
-      <TripForm onSubmit={handleSubmit} isLoading={isLoading} mode={mode} />
+      <TripForm
+        onSubmit={handleSubmit}
+        isLoading={isLoading}
+        mode={mode}
+        showLivePreview={showLivePreview}
+        onShowLivePreviewChange={setShowLivePreview}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import mammoth from "mammoth";
-import pdf from "pdf-parse";
+import { PDFParse } from "pdf-parse";
 
 export async function parseFile(file: File): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase();
@@ -7,7 +7,9 @@ export async function parseFile(file: File): Promise<string> {
 
   try {
     if (ext === "pdf") {
-      const data = await pdf(buffer);
+      const parser = new PDFParse({ data: buffer });
+      const data = await parser.getText();
+      await parser.destroy();
       const text = (data.text || "").trim();
       if (!text) {
         throw new Error("The PDF file was parsed but no readable text was found.");

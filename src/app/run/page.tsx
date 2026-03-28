@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AgentProgress } from "@/components/agent-progress";
 import { LiveBrowser } from "@/components/live-browser";
@@ -24,6 +24,7 @@ interface PendingPayload {
     runMode?: "accommodation-only" | "full-agent";
   };
   mode?: "accommodation-only" | "full-agent";
+  showLivePreview?: boolean;
   file: {
     name: string;
     type: string;
@@ -31,14 +32,18 @@ interface PendingPayload {
   } | null;
 }
 
-export default function RunPage() {
+function RunContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const runId = searchParams.get("runId") || "";
+  const previewParam = searchParams.get("preview");
 
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [streamingUrl, setStreamingUrl] = useState<string | undefined>();
   const [error, setError] = useState<string>("");
+  const [showLivePreview, setShowLivePreview] = useState<boolean>(previewParam === "1");
+  const [sourceMode, setSourceMode] = useState<"workflow" | "manual">("workflow");
+  const startedRunIdRef = useRef<string | null>(null);
 
   const current = useMemo(() => {
     const latest = events[events.length - 1];
@@ -50,14 +55,47 @@ export default function RunPage() {
   }, [events]);
 
   useEffect(() => {
-    if (!runId) return;
+    setShowLivePreview(previewParam === "1");
+  }, [previewParam]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("navio-show-live-preview", showLivePreview ? "1" : "0");
+  }, [showLivePreview]);
+
+  useEffect(() => {
+    if (previewParam !== null) return;
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("navio-show-live-preview");
+    if (saved === "1" || saved === "0") {
+      setShowLivePreview(saved === "1");
+    }
+  }, [previewParam]);
+
+  useEffect(() => {
+    if (!runId) {
+      router.replace("/search");
+      return;
+    }
+    if (startedRunIdRef.current === runId) return;
+    startedRunIdRef.current = runId;
+
+    const abortController = new AbortController();
     const raw = sessionStorage.getItem(`navio-pending-${runId}`);
     if (!raw) {
-      setError("Missing pending run payload.");
+      // Stale deep-link or back navigation to an already-consumed run.
+      router.replace("/search");
       return;
     }
 
     const payload = JSON.parse(raw) as PendingPayload;
+    if (previewParam === "1" || previewParam === "0") {
+      setShowLivePreview(previewParam === "1");
+      setSourceMode("manual");
+    } else if (typeof payload.showLivePreview === "boolean") {
+      setShowLivePreview(payload.showLivePreview);
+      setSourceMode("workflow");
+    }
 
     const execute = async () => {
       try {
@@ -87,6 +125,7 @@ export default function RunPage() {
           method: "POST",
           body: formData,
           headers: { Accept: "text/event-stream" },
+          signal: abortController.signal,
         });
 
         if (!response.ok || !response.body) {
@@ -112,12 +151,14 @@ export default function RunPage() {
             setEvents((prev) => [...prev, event]);
 
             if (event.payload.streaming_url) {
-              setStreamingUrl(String(event.payload.streaming_url));
+              const nextUrl = String(event.payload.streaming_url);
+              setStreamingUrl((prev) => (prev === nextUrl ? prev : nextUrl));
             }
 
             if (event.type === "completed") {
               sessionStorage.removeItem(`navio-pending-${runId}`);
-              router.push(`/results?runId=${encodeURIComponent(runId)}`);
+              // Replace so browser back does not return to a stale /run route.
+              router.replace(`/results?runId=${encodeURIComponent(runId)}`);
               return;
             }
 
@@ -127,30 +168,92 @@ export default function RunPage() {
           }
         }
       } catch (err) {
+        const isAbort =
+          (err instanceof DOMException && err.name === "AbortError") ||
+          (err instanceof Error && /aborted/i.test(err.message));
+
+        // Abort is expected during strict-mode dev cleanup or route changes.
+        if (isAbort) return;
+
         setError(err instanceof Error ? err.message : "Run failed.");
       }
     };
 
     void execute();
+
+    return () => {
+      abortController.abort();
+      // Allow a fresh attempt for the same runId after cleanup (strict mode/dev).
+      startedRunIdRef.current = null;
+    };
   }, [router, runId]);
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-6 py-8">
       <h1 className="mb-1 text-2xl font-semibold">Live Decision Run</h1>
       <p className="mb-6 text-sm text-muted-foreground">Run ID: {runId || "-"}</p>
 
+      <div className="mb-6 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShowLivePreview(false)}
+          className={`rounded-md border px-3 py-1.5 text-sm transition ${
+            showLivePreview
+              ? "border-border bg-background text-muted-foreground"
+              : "border-foreground/30 bg-foreground/10 text-foreground"
+          }`}
+        >
+          Text progress only
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowLivePreview(true)}
+          className={`rounded-md border px-3 py-1.5 text-sm transition ${
+            showLivePreview
+              ? "border-foreground/30 bg-foreground/10 text-foreground"
+              : "border-border bg-background text-muted-foreground"
+          }`}
+        >
+          Show live browser
+        </button>
+      </div>
+
+      <p className="mb-6 text-xs text-muted-foreground">
+        {showLivePreview
+          ? sourceMode === "workflow"
+            ? "Showing live browser because this was selected in the workflow page."
+            : "Showing live browser preview for this run."
+          : sourceMode === "workflow"
+          ? "Text-only progress was selected in the workflow page for a cleaner run view."
+          : "Text-only progress mode is enabled for a cleaner run view."}
+      </p>
+
       {error ? <p className="mb-4 rounded-lg border border-red-500/50 p-3 text-sm text-red-400">{error}</p> : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-6">
         <AgentProgress
           events={events}
           currentStage={current.stage}
           currentSite={current.site}
           currentAction={current.action}
         />
-        <LiveBrowser streamingUrl={streamingUrl} />
+        {showLivePreview ? <LiveBrowser streamingUrl={streamingUrl} /> : null}
       </div>
     </div>
+  );
+}
+
+export default function RunPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl px-6 py-12 text-sm text-muted-foreground">
+          Preparing run...
+        </div>
+      }
+    >
+      <RunContent />
+    </Suspense>
   );
 }
 

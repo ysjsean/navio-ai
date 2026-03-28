@@ -1,11 +1,14 @@
 import OpenAI from "openai";
 import { z } from "zod";
-import { ParsedItinerary } from "@/types/itinerary";
+import { GeocodedLocation, ParsedItinerary } from "@/types/itinerary";
 import { RankedResults } from "@/types/listing";
 import {
   explainDecisionPrompt,
+  geocodeLocationsPrompt,
   parseItineraryPrompt,
+  searchRadiusPrompt,
   selectBestAreaPrompt,
+  transitScoringPrompt,
 } from "@/lib/prompts";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -50,10 +53,11 @@ export async function parseItinerary(inputText: string): Promise<ParsedItinerary
 }
 
 export async function selectBestArea(
-  parsed: ParsedItinerary
+  parsed: ParsedItinerary,
+  geocodedLocations?: GeocodedLocation[]
 ): Promise<{ bestArea: string; reason: string }> {
   try {
-    const raw = await askModelForJson(selectBestAreaPrompt(parsed));
+    const raw = await askModelForJson(selectBestAreaPrompt(parsed, geocodedLocations));
     const selected = areaSchema.parse(raw);
     return {
       bestArea: selected.bestArea,
@@ -66,6 +70,92 @@ export async function selectBestArea(
       reason:
         "Fallback area selected from itinerary anchors to preserve travel efficiency.",
     };
+  }
+}
+
+const geocodedLocationSchema = z.object({
+  name: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  transitType: z.string().default("taxi"),
+});
+
+export async function geocodeLocations(
+  locations: string[],
+  city: string
+): Promise<GeocodedLocation[]> {
+  if (locations.length === 0) return [];
+  try {
+    const raw = await askModelForJson(geocodeLocationsPrompt(locations, city));
+    const parsed = z.object({ locations: z.array(geocodedLocationSchema) }).parse(raw);
+    return parsed.locations;
+  } catch {
+    // Return minimal fallback — no coordinates, transit type unknown
+    return locations.map((name) => ({ name, lat: 0, lng: 0, transitType: "taxi" }));
+  }
+}
+
+const transitEstimateSchema = z.object({
+  area: z.string(),
+  avg_minutes: z.number().nonnegative(),
+});
+
+const radiusSchema = z.object({
+  radiusKm: z.number().positive(),
+  reason: z.string().optional(),
+});
+
+export async function determineSearchRadius(args: {
+  city: string;
+  bestArea: string;
+  geocodedLocations: GeocodedLocation[];
+}): Promise<{ radiusKm: number; reason: string }> {
+  if (!args.geocodedLocations.length) {
+    return {
+      radiusKm: 3,
+      reason: "Fallback radius used because geocoded itinerary points were unavailable.",
+    };
+  }
+
+  try {
+    const raw = await askModelForJson(searchRadiusPrompt(args));
+    const parsed = radiusSchema.parse(raw);
+    const radiusKm = Math.max(1.2, Math.min(8, parsed.radiusKm));
+    return {
+      radiusKm,
+      reason:
+        parsed.reason ||
+        `Radius ${radiusKm}km selected from itinerary geolocation distribution.`,
+    };
+  } catch {
+    return {
+      radiusKm: 3,
+      reason: "Fallback radius used due to radius model failure.",
+    };
+  }
+}
+
+export async function scoreTransitConvenience(
+  listingAreas: string[],
+  geocodedLocations: GeocodedLocation[],
+  city: string
+): Promise<Record<string, number>> {
+  if (listingAreas.length === 0 || geocodedLocations.length === 0) return {};
+  try {
+    const raw = await askModelForJson(
+      transitScoringPrompt(listingAreas, geocodedLocations, city)
+    );
+    const parsed = z
+      .object({ transit_estimates: z.array(transitEstimateSchema) })
+      .parse(raw);
+
+    const result: Record<string, number> = {};
+    for (const estimate of parsed.transit_estimates) {
+      result[estimate.area] = estimate.avg_minutes;
+    }
+    return result;
+  } catch {
+    return {};
   }
 }
 

@@ -1,12 +1,19 @@
 import { NextRequest } from "next/server";
-import mockListings from "@/data/mock-listings.json";
 import { createEventStream } from "@/lib/event-stream";
 import { parseFile } from "@/lib/file-parser";
-import { explainDecision, parseItinerary, selectBestArea } from "@/lib/openai";
+import {
+  determineSearchRadius,
+  explainDecision,
+  geocodeLocations,
+  parseItinerary,
+  scoreTransitConvenience,
+  selectBestArea,
+} from "@/lib/openai";
 import { saveRunResult } from "@/lib/run-store";
 import { rankListings } from "@/lib/scoring";
-import { runTinyFishSearch } from "@/lib/tinyfish";
-import { Listing, SiteAuditRecord } from "@/types/listing";
+import { runTinyFishSearchConcurrent } from "@/lib/tinyfish";
+import { enrichListingsWithGoogleGeo } from "@/lib/google-geocode";
+import { Listing, SiteAuditRecord, TinyFishSearchResult } from "@/types/listing";
 import { ParsedItinerary, RunMode, TripInput } from "@/types/itinerary";
 
 export const dynamic = "force-dynamic";
@@ -55,20 +62,37 @@ export async function POST(req: NextRequest) {
       itinerary: parsed,
     });
 
-    const inferredAreaAnchor = inferAreaAnchor(parsed, mergedText);
-    const area =
-      runMode === "full-agent"
-        ? await selectBestArea(parsed)
-        : {
-            bestArea: inferredAreaAnchor,
-            reason:
-              "Accommodation-only mode: using itinerary destination cluster as search anchor.",
-          };
+    // Stage 1: Geocode itinerary locations to enable transit-aware area selection
+    let geocodedLocations = parsed.geocodedLocations;
+    if (parsed.locations.length > 0) {
+      write("geocoding_started", { runId, stage: "geocoding" });
+      try {
+        geocodedLocations = await geocodeLocations(parsed.locations, parsed.city);
+        parsed = { ...parsed, geocodedLocations };
+        write("geocoding_done", { runId, stage: "geocoding", count: geocodedLocations.length });
+      } catch {
+        write("geocoding_done", { runId, stage: "geocoding", count: 0, note: "geocoding skipped" });
+      }
+    }
+
+    // Stage 2: Select best area from itinerary geolocation in all modes
+    const area = await selectBestArea(parsed, geocodedLocations);
+
+    // Stage 3: Ask OpenAI for initial search radius based on all geocoded itinerary points
+    const radiusDecision = await determineSearchRadius({
+      city: parsed.city,
+      bestArea: area.bestArea,
+      geocodedLocations: geocodedLocations || [],
+    });
+    parsed = { ...parsed, searchRadiusKm: radiusDecision.radiusKm };
+
     write("area_selected", {
       runId,
       stage: "area",
       bestArea: area.bestArea,
       reason: area.reason,
+      searchRadiusKm: radiusDecision.radiusKm,
+      radiusReason: radiusDecision.reason,
     });
 
     const resolvedTrip: TripInput = {
@@ -90,6 +114,7 @@ export async function POST(req: NextRequest) {
           ? uiTrip.propertyTypes
           : ["hotel", "airbnb", "hostel", "serviced-apartment"],
       preferences: parsed.preferences,
+      searchRadiusKm: parsed.searchRadiusKm,
       itineraryText: mergedText,
     };
 
@@ -99,55 +124,154 @@ export async function POST(req: NextRequest) {
       action: "run-sse",
     });
 
-    let usedMockData = false;
+    const usedMockData = false;
     let errorNote = "";
     let listings: Listing[] = [];
     let sitesChecked: SiteAuditRecord[] = [];
     let streamingUrl: string | undefined;
+    let tinyfishMetrics: TinyFishSearchResult["metrics"];
 
     try {
-      const tinyfish = await runTinyFishSearch({
-        trip: resolvedTrip,
-        bestArea: area.bestArea,
-        onProgress: (event) => {
-          write("tinyfish_progress", {
-            runId,
-            ...event,
-          });
+      const minListings = Math.max(4, Math.ceil((parsed.pax || 2) * 1.2));
+      const baseRadius = resolvedTrip.searchRadiusKm || 3;
+      const radiusPlan = [baseRadius, baseRadius + 1.5, baseRadius + 3].map((n) =>
+        Math.round(n * 10) / 10
+      );
 
-          if (event.site) {
-            write("site_searching", {
-              runId,
-              stage: "searching",
-              site: event.site,
-              action: event.action || "checking site",
-            });
-          }
-        },
-      });
+      const mergedListingsMap = new Map<string, Listing>();
+      const mergedSitesMap = new Map<string, SiteAuditRecord>();
+      let consecutiveNoGrowthPasses = 0;
+      const maxNoGrowthPasses = Math.max(1, Number(process.env.TINYFISH_MAX_NO_GROWTH_PASSES || 2));
 
-      listings = tinyfish.listings;
-      sitesChecked = tinyfish.sites_checked;
-      streamingUrl = tinyfish.streaming_url;
-      if (streamingUrl) {
-        write("tinyfish_started", {
+      for (let i = 0; i < radiusPlan.length; i += 1) {
+        const radiusKm = radiusPlan[i];
+        const passStart = Date.now();
+        const beforeCount = mergedListingsMap.size;
+        write("tinyfish_progress", {
           runId,
           stage: "tinyfish",
-          streaming_url: streamingUrl,
+          action: "radius_pass",
+          message: `Searching within ${radiusKm} km radius (${i + 1}/${radiusPlan.length})`,
         });
+
+        const tinyfish = await runTinyFishSearchConcurrent({
+          trip: { ...resolvedTrip, searchRadiusKm: radiusKm },
+          bestArea: area.bestArea,
+          onProgress: (event) => {
+            write("tinyfish_progress", {
+              runId,
+              ...event,
+            });
+
+            if (event.site) {
+              write("site_searching", {
+                runId,
+                stage: "searching",
+                site: event.site,
+                action: event.action || "checking site",
+              });
+            }
+          },
+        });
+
+        tinyfishMetrics = tinyfish.metrics || tinyfishMetrics;
+
+        if (tinyfish.metrics) {
+          write("tinyfish_progress", {
+            runId,
+            stage: "tinyfish",
+            action: "timing_metrics",
+            message: `Pass ${i + 1}: ${tinyfish.metrics.totalMs}ms total`,
+            metrics: tinyfish.metrics,
+          });
+        }
+
+        for (const item of tinyfish.listings) {
+          const key = item.listing_url || `${item.site_name}|${item.listing_name}`;
+          mergedListingsMap.set(key, item);
+        }
+
+        for (const site of tinyfish.sites_checked) {
+          const key = `${site.site_name}|${site.search_url || ""}`;
+          mergedSitesMap.set(key, site);
+        }
+
+        if (!streamingUrl && tinyfish.streaming_url) {
+          streamingUrl = tinyfish.streaming_url;
+          write("tinyfish_started", {
+            runId,
+            stage: "tinyfish",
+            streaming_url: streamingUrl,
+          });
+        }
+
+        const afterCount = mergedListingsMap.size;
+        const growth = afterCount - beforeCount;
+        const passMs = Date.now() - passStart;
+
+        write("tinyfish_progress", {
+          runId,
+          stage: "tinyfish",
+          action: "radius_pass_done",
+          message: `Radius ${radiusKm}km completed in ${passMs}ms; +${growth} new listings (${afterCount} total).`,
+          radiusKm,
+          passIndex: i + 1,
+          passDurationMs: passMs,
+          growth,
+          totalListings: afterCount,
+        });
+
+        if (growth <= 0) {
+          consecutiveNoGrowthPasses += 1;
+        } else {
+          consecutiveNoGrowthPasses = 0;
+        }
+
+        if (mergedListingsMap.size >= minListings) {
+          write("tinyfish_progress", {
+            runId,
+            stage: "tinyfish",
+            action: "termination_success",
+            message: `Stopping radius expansion: reached target inventory (${mergedListingsMap.size}/${minListings}).`,
+          });
+          break;
+        }
+
+        if (consecutiveNoGrowthPasses >= maxNoGrowthPasses) {
+          write("tinyfish_progress", {
+            runId,
+            stage: "tinyfish",
+            action: "termination_no_growth",
+            message: `Stopping radius expansion early after ${consecutiveNoGrowthPasses} no-growth passes.`,
+          });
+          break;
+        }
+
+        if (tinyfish.metrics?.blockedLikely && afterCount < 2) {
+          throw new Error(
+            `TinyFish likely blocked during radius pass ${i + 1}: ${(tinyfish.metrics.blockedSignals || []).join(
+              ", "
+            )}`
+          );
+        }
+      }
+
+      listings = Array.from(mergedListingsMap.values());
+      sitesChecked = Array.from(mergedSitesMap.values());
+
+      if (listings.length === 0) {
+        throw new Error("TinyFish completed all passes without extracting viable listings.");
       }
     } catch (error) {
-      usedMockData = true;
       errorNote =
         error instanceof Error
-          ? `TinyFish failed, fallback to mock data: ${error.message}`
-          : "TinyFish failed, fallback to mock data.";
-      listings = mockListings.listings as Listing[];
-      sitesChecked = mockListings.sites_checked as SiteAuditRecord[];
+          ? `TinyFish failed: ${error.message}`
+          : "TinyFish failed.";
       write("tinyfish_progress", {
         runId,
         message: errorNote,
       });
+      throw new Error(errorNote);
     }
 
     listings.forEach((listing) => {
@@ -158,8 +282,54 @@ export async function POST(req: NextRequest) {
       });
     });
 
+    listings = await enrichListingsWithGoogleGeo(listings, {
+      city: parsed.city,
+      onProgress: (message) => {
+        write("tinyfish_progress", {
+          runId,
+          stage: "tinyfish",
+          action: "google_geo_enrichment",
+          message,
+        });
+      },
+    });
+
+    // Stage 5: Score transit convenience per listing area via OpenAI
+    let transitMinutes: Record<string, number> = {};
+    const uniqueAreas = [...new Set(listings.map((l) => l.area).filter(Boolean))];
+    if (uniqueAreas.length > 0 && parsed.locations.length > 0) {
+      write("transit_scoring_started", { runId, stage: "transit_scoring" });
+      try {
+        // Ensure we have geocoded locations for transit scoring
+        const geoLocs =
+          geocodedLocations && geocodedLocations.length > 0
+            ? geocodedLocations
+            : await geocodeLocations(parsed.locations, parsed.city);
+
+        transitMinutes = await scoreTransitConvenience(uniqueAreas, geoLocs, parsed.city);
+        write("transit_scoring_done", {
+          runId,
+          stage: "transit_scoring",
+          areasScored: Object.keys(transitMinutes).length,
+        });
+      } catch {
+        write("transit_scoring_done", {
+          runId,
+          stage: "transit_scoring",
+          areasScored: 0,
+          note: "transit scoring skipped",
+        });
+      }
+    }
+
     write("ranking_started", { runId, stage: "ranking" });
-    const rankings = rankListings(listings, parsed, area.bestArea);
+    const rankings = rankListings(
+      listings,
+      parsed,
+      area.bestArea,
+      transitMinutes,
+      uiTrip.budget.currency || "SGD"
+    );
     write("ranking_done", {
       runId,
       stage: "ranking",
@@ -198,6 +368,7 @@ export async function POST(req: NextRequest) {
       explanation,
       usedMockData,
       errorNote: errorNote || undefined,
+      tinyfishMetrics,
     };
 
     saveRunResult(finalResult);

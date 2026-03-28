@@ -49,12 +49,36 @@ interface TripFormProps {
   onSubmit: (payload: TripFormSubmission) => void;
   isLoading: boolean;
   mode: RunMode;
+  showLivePreview: boolean;
+  onShowLivePreviewChange: (show: boolean) => void;
 }
 
-export function TripForm({ onSubmit, isLoading, mode }: TripFormProps) {
+type TripFormState = {
+  city: string;
+  checkIn: string;
+  checkOut: string;
+  nights: number;
+  pax: number;
+  rooms: number;
+  budgetAmount: number;
+  budgetMode: "total" | "nightly";
+  budgetCurrency: string;
+  roomType: string;
+  propertyTypes: string[];
+  preferences: string[];
+  itineraryText: string;
+};
+
+export function TripForm({
+  onSubmit,
+  isLoading,
+  mode,
+  showLivePreview,
+  onShowLivePreviewChange,
+}: TripFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
-  const [values, setValues] = useState({
+  const [values, setValues] = useState<TripFormState>({
     city: "",
     checkIn: "",
     checkOut: "",
@@ -62,7 +86,7 @@ export function TripForm({ onSubmit, isLoading, mode }: TripFormProps) {
     pax: 0,
     rooms: 0,
     budgetAmount: 0,
-    budgetMode: "total" as const,
+    budgetMode: "total",
     budgetCurrency: "SGD",
     roomType: "private room",
     propertyTypes: ["hotel", "airbnb"],
@@ -311,6 +335,56 @@ export function TripForm({ onSubmit, isLoading, mode }: TripFormProps) {
           </CardContent>
         </Card>
       ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => onShowLivePreviewChange(false)}
+          className="cursor-pointer text-left"
+        >
+          <Card
+            className={
+              !showLivePreview
+                ? "border-primary bg-primary/10 ring-2 ring-primary/40 transition"
+                : "border-border hover:border-primary/50 hover:bg-muted/20 transition"
+            }
+          >
+            <CardContent className="space-y-2 pt-4">
+              <p className="text-lg font-semibold">Text Progress View</p>
+              <p className="text-sm text-muted-foreground">
+                Faster-feeling UI with clean timeline updates only.
+              </p>
+              <p className="text-xs font-medium text-primary">
+                {!showLivePreview ? "Selected" : "Click to select"}
+              </p>
+            </CardContent>
+          </Card>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onShowLivePreviewChange(true)}
+          className="cursor-pointer text-left"
+        >
+          <Card
+            className={
+              showLivePreview
+                ? "border-primary bg-primary/10 ring-2 ring-primary/40 transition"
+                : "border-border hover:border-primary/50 hover:bg-muted/20 transition"
+            }
+          >
+            <CardContent className="space-y-2 pt-4">
+              <p className="text-lg font-semibold">Live Browser + Progress</p>
+              <p className="text-sm text-muted-foreground">
+                Includes iframe preview alongside the timeline.
+              </p>
+              <p className="text-xs font-medium text-primary">
+                {showLivePreview ? "Selected" : "Click to select"}
+              </p>
+            </CardContent>
+          </Card>
+        </button>
+      </div>
 
       <Button type="submit" disabled={isLoading || !canSubmit} className="h-11 w-full">
         {isLoading

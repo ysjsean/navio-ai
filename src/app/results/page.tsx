@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { BestAreaCard } from "@/components/best-area-card";
@@ -9,7 +9,7 @@ import { SiteAuditCard } from "@/components/site-audit-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FinalRunResult } from "@/types/listing";
 
-export default function ResultsPage() {
+function ResultsContent() {
   const searchParams = useSearchParams();
   const runId = searchParams.get("runId") || "";
   const [result, setResult] = useState<FinalRunResult | null>(null);
@@ -49,6 +49,7 @@ export default function ResultsPage() {
   }
 
   const chosen = result.rankings.bestOverall;
+  const chosenHouseRuleLines = toHouseRuleLines(chosen?.house_rules);
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-10">
@@ -61,7 +62,7 @@ export default function ResultsPage() {
 
       <BestAreaCard area={result.bestArea} reason={result.areaReason} />
 
-      <Card className="border-primary/50 bg-primary/5">
+      <Card className="border-primary/50 bg-gradient-to-b from-primary/10 to-background">
         <CardHeader>
           <CardTitle>Chosen Accommodation</CardTitle>
         </CardHeader>
@@ -71,8 +72,51 @@ export default function ResultsPage() {
               <p className="text-base font-semibold">
                 {chosen.listing_name} ({chosen.site_name})
               </p>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground leading-relaxed">
                 {chosen.currency} {chosen.price_per_night} / night ({chosen.currency} {chosen.total_price} total) · Area {chosen.area} · Rating {chosen.rating}
+              </p>
+              {chosen.total_price_sgd !== undefined ? (
+                <p className="text-xs text-muted-foreground">
+                  FX mapped: SGD {chosen.price_per_night_sgd ?? "-"} / night (SGD {chosen.total_price_sgd} total)
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                Postal: {chosen.postal_code || "Not available"}
+                {" | "}
+                Coords: {formatCoords(chosen.lat, chosen.lng)}
+              </p>
+              {chosen.geo_source?.startsWith("google") ? (
+                <p className="text-xs text-muted-foreground">
+                  Location enrichment source: Google
+                  {chosen.geo_reference_url ? (
+                    <>
+                      {" "}
+                      <a href={chosen.geo_reference_url} target="_blank" rel="noopener noreferrer" className="underline">
+                        (reference)
+                      </a>
+                    </>
+                  ) : null}
+                  {chosen.geo_source === "google_geocoding_failed" ? " - Not found on Google." : ""}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                Cancellation: {formatCancellationSummary(chosen.cancellation_policy, chosen.matched_filters?.dates)}
+              </p>
+              <div className="text-xs text-muted-foreground">
+                <p>House rules:</p>
+                {chosenHouseRuleLines.length > 0 ? (
+                  <div className="mt-1 space-y-0.5">
+                    {chosenHouseRuleLines.map((line, idx) => (
+                      <p key={`${line}-${idx}`}>- {line}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p>Not provided</p>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Cancellation terms are provider-supplied and may depend on booking time/timezone.
+                Verify on the final booking page.
               </p>
               <div className="flex flex-wrap gap-4 text-sm">
                 <a
@@ -167,4 +211,56 @@ export default function ResultsPage() {
       </section>
     </div>
   );
+}
+
+export default function ResultsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl px-6 py-12 text-sm text-muted-foreground">
+          Loading result...
+        </div>
+      }
+    >
+      <ResultsContent />
+    </Suspense>
+  );
+}
+
+function formatCoords(lat: number | undefined, lng: number | undefined): string {
+  if (lat === undefined || lng === undefined) return "Not available";
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+function formatCancellationSummary(policy: string | undefined, hasKnownDates?: boolean): string {
+  const raw = (policy || "").trim();
+  if (!raw) return "Not specified";
+
+  const hasDateSensitivePhrase = /free cancellation\s+before|cancel(?:lation)?\s+before/i.test(raw);
+  if (hasDateSensitivePhrase && !hasKnownDates) {
+    return "Date-dependent free cancellation may apply (exact cutoff unavailable).";
+  }
+
+  return raw;
+}
+
+function toHouseRuleLines(rules: string | undefined): string[] {
+  const text = (rules || "").trim();
+  if (!text) return [];
+
+  const lines = text
+    .split(/\r?\n|\s*\|\s*|\s*;\s*/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const key = line.toLowerCase().replace(/\s+/g, " ").trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(line);
+  }
+
+  return unique;
 }
