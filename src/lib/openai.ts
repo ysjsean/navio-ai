@@ -7,9 +7,13 @@ import {
   explainDecisionPrompt,
 } from "./prompts";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY ?? "missing",
-});
+let _openai: OpenAI | null = null;
+function getOpenAI() {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? "missing" });
+  }
+  return _openai;
+}
 
 const MODEL = "gpt-4o";
 
@@ -17,7 +21,7 @@ export async function parseItinerary(
   tripText: string
 ): Promise<ParsedItinerary> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: MODEL,
       messages: [
         {
@@ -49,7 +53,7 @@ export async function selectArea(
   parsed: ParsedItinerary
 ): Promise<AreaSelection> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: MODEL,
       messages: [
         {
@@ -87,7 +91,7 @@ export async function explainDecision(
       2
     );
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: MODEL,
       messages: [
         {
