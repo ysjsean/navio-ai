@@ -58,8 +58,8 @@ export async function fetchTinyFish(params: TinyFishParams): Promise<Listing[]> 
           
           const chunk = JSON.parse(jsonStr);
           // Look for final output payload
-          if (chunk.status === "completed" || chunk.status === "done" || chunk.output || chunk.results) {
-            data = chunk;
+          if (chunk.type === "COMPLETE" || chunk.status === "completed" || chunk.status === "done" || chunk.output || chunk.results) {
+            data = chunk.result ?? chunk;
           }
         } catch (err) {
           // ignore malformed SSE json fragments
