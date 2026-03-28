@@ -54,13 +54,31 @@ export default function Home() {
       advanceStep(2, "Analyzing locations...");
       await delay(600);
 
-      // Step 3: Searching
-      advanceStep(3, "Browsing accommodation sites...");
+      // Step 3: Searching — cycle messages while waiting
+      const searchMessages = [
+        "Browsing accommodation sites...",
+        "Opening Booking.com results...",
+        "Scanning listings in your area...",
+        "Checking prices and availability...",
+        "Extracting ratings and policies...",
+        "Almost there, finalizing results...",
+      ];
+      let msgIndex = 0;
+      advanceStep(3, searchMessages[0]);
+      const searchInterval = setInterval(() => {
+        msgIndex = (msgIndex + 1) % searchMessages.length;
+        advanceStep(3, searchMessages[msgIndex]);
+      }, 8000);
 
-      const res = await fetch("/api/run-agent", {
-        method: "POST",
-        body: formData,
-      });
+      let res: Response;
+      try {
+        res = await fetch("/api/run-agent", {
+          method: "POST",
+          body: formData,
+        });
+      } finally {
+        clearInterval(searchInterval);
+      }
 
       // Step 4: Ranking
       advanceStep(4, "Scoring and comparing...");
